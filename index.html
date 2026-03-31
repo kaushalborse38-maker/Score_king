@@ -80,6 +80,8 @@
             view: 'home', 
             activeStatsPlayer: 'Sumit',
             showSetupModal: false,
+            showSecurityModal: false,
+            securityError: false,
             settings: { overs: 20, wickets: 2 },
             match: {
                 innings: 1,
@@ -226,7 +228,6 @@
         function updateCareerStats() {
             const m = state.match;
             const winner = m.winner;
-            const loser = winner === 'Kaushal' ? 'Sumit' : 'Kaushal';
             const updatePlayer = (name, isWinner) => {
                 const pStats = state.playerStats[name];
                 pStats.matches = (pStats.matches || 0) + 1;
@@ -247,8 +248,8 @@
                     pStats.wickets = (pStats.wickets || 0) + m.wickets; 
                 }
             };
-            updatePlayer(winner, true);
-            updatePlayer(loser, false);
+            updatePlayer(m.battingTeam, winner === m.battingTeam);
+            updatePlayer(m.bowlingTeam, winner === m.bowlingTeam);
             saveToLocal();
         }
 
@@ -269,6 +270,28 @@
             saveToLocal();
         };
 
+        window.abandonMatch = function() {
+            state.match = JSON.parse(JSON.stringify(INITIAL_STATE.match));
+            state.view = 'home';
+            render();
+            saveToLocal();
+        };
+
+        window.verifyHistoryDelete = function() {
+            const input = document.getElementById('security-pass').value;
+            if (input === '123') {
+                state.matchHistory = [];
+                state.playerStats = JSON.parse(JSON.stringify(INITIAL_STATE.playerStats));
+                state.showSecurityModal = false;
+                state.securityError = false;
+                render();
+                saveToLocal();
+            } else {
+                state.securityError = true;
+                render();
+            }
+        };
+
         window.finalizeMatchSetup = function() {
             const tossWinner = state.match.tossWinner;
             const tossChoice = state.match.tossChoice;
@@ -280,11 +303,24 @@
                 bat = tossChoice === 'Bat' ? 'Sumit' : 'Kaushal';
                 bowl = tossChoice === 'Bat' ? 'Kaushal' : 'Sumit';
             }
-            state.match = { ...JSON.parse(JSON.stringify(INITIAL_STATE.match)), status: 'live', battingTeam: bat, bowlingTeam: bowl, tossWinner, tossChoice };
+            
+            const defaultMatch = INITIAL_STATE.match;
+            state.match = {
+                ...defaultMatch,
+                status: 'live',
+                battingTeam: bat,
+                bowlingTeam: bowl,
+                tossWinner,
+                tossChoice,
+                ballLog: [],
+                liveBatter: { runs: 0, balls: 0, fours: 0, sixes: 0 },
+                liveBowler: { runs: 0, balls: 0, wickets: 0 }
+            };
+            
             state.showSetupModal = false;
             state.view = 'play';
             render();
-            saveToLocal();
+            setTimeout(saveToLocal, 50);
         };
 
         window.resetMatch = function() {
@@ -302,6 +338,11 @@
 
         window.setView = function(v) { state.view = v; render(); saveToLocal(); };
         window.toggleSetupModal = function(show) { state.showSetupModal = show; render(); };
+        window.toggleSecurityModal = function(show) { 
+            state.showSecurityModal = show; 
+            state.securityError = false;
+            render(); 
+        };
         window.setSetting = function(key, val) { state.settings[key] = parseInt(val); render(); };
         window.setActiveStatsPlayer = function(name) { state.activeStatsPlayer = name; render(); };
         window.setTossWinner = function(name) { state.match.tossWinner = name; render(); };
@@ -359,18 +400,10 @@
 
             container.innerHTML = header + mainContent + nav;
 
-            // Handle Modal Overlays within the same container to avoid lag
-            if (state.showSetupModal) {
-                container.innerHTML += renderSetupModalHTML();
-            }
-
-            if (state.match.status === 'innings_break') {
-                container.innerHTML += renderMessageModalHTML('Innings Over!', `Target: ${state.match.score + 1}`, 'Start Innings 2', 'window.startInnings2()');
-            }
-
-            if (state.match.status === 'finished') {
-                container.innerHTML += renderVictoryModalHTML();
-            }
+            if (state.showSetupModal) container.innerHTML += renderSetupModalHTML();
+            if (state.showSecurityModal) container.innerHTML += renderSecurityModalHTML();
+            if (state.match.status === 'innings_break') container.innerHTML += renderMessageModalHTML('Innings Over!', `Target: ${state.match.score + 1}`, 'Start Innings 2', 'window.startInnings2()');
+            if (state.match.status === 'finished') container.innerHTML += renderVictoryModalHTML();
 
             appEl.appendChild(container);
             lucide.createIcons();
@@ -394,7 +427,11 @@
                             <p class="text-[8px] text-slate-500 font-black uppercase tracking-widest italic">${m.overs} ov</p>
                         </div>
                     </div>
-                `).join('')
+                `).join('') + `
+                    <button onclick="toggleSecurityModal(true)" class="w-full mt-4 flex items-center justify-center gap-2 py-3 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-500 text-[10px] font-black uppercase tracking-widest italic">
+                        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Clear Archive
+                    </button>
+                `
                 : `<div class="py-10 text-center bg-[#0f172a]/20 rounded-[32px] border border-dashed border-white/5 mx-2">
                     <p class="text-[9px] font-black text-slate-700 uppercase tracking-widest italic">No History Available</p>
                   </div>`;
@@ -425,7 +462,7 @@
                         <h2 class="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500 mb-5 ml-2 italic leading-none">Recent History</h2>
                         ${historyHtml}
                         ${state.match.status === 'live' || state.match.status === 'innings_break' ? `
-                            <button onclick="setView('play')" class="w-full mt-4 bg-emerald-500/10 text-emerald-400 p-6 rounded-[30px] border border-emerald-500/20 flex justify-between items-center">
+                            <button onclick="setView('play')" class="w-full mt-6 bg-emerald-500/10 text-emerald-400 p-6 rounded-[30px] border border-emerald-500/20 flex justify-between items-center">
                                 <div class="text-left">
                                     <p class="text-[8px] font-black tracking-widest italic uppercase mb-1">In Progress</p>
                                     <p class="text-xl font-black uppercase italic leading-none">Resume Match</p>
@@ -503,34 +540,30 @@
                 if (b.type !== 'wide' && b.type !== 'noball') legalCount++;
                 if (legalCount === (m.balls % 6 === 0 && m.balls > 0 ? 6 : m.balls % 6)) break;
             }
-
             const slots = Array(6).fill(null);
             let ballIndex = 0;
             currentOverBalls.forEach(b => {
                 if(ballIndex < 6) slots[ballIndex] = b;
                 if(b.type !== 'wide' && b.type !== 'noball') ballIndex++;
             });
-
             return `
                 <div class="px-5 mt-2">
                     <div class="bg-[#020617]/50 rounded-2xl border border-white/5 p-2.5 flex justify-between items-center">
                         <span class="text-[8px] font-black text-slate-600 uppercase tracking-widest italic ml-1">Over Tracer</span>
-                        <div class="flex gap-1.5 mr-1">
-                            ${slots.map((s, idx) => {
-                                let color = 'bg-white/5 border-white/5 text-slate-800';
-                                let text = '';
-                                if (s) {
-                                    text = s.run;
-                                    if (s.type === 'wicket') { color = 'bg-rose-500 border-rose-400 text-white'; text = 'W'; }
-                                    else if (s.run === 4) color = 'bg-blue-600 border-blue-400 text-white';
-                                    else if (s.run === 6) color = 'bg-amber-500 border-amber-400 text-white';
-                                    else if (s.type === 'wide') { color = 'bg-slate-800 text-slate-400'; text = 'wd'; }
-                                    else if (s.type === 'noball') { color = 'bg-slate-800 text-slate-400'; text = 'nb'; }
-                                    else color = 'bg-emerald-500/20 border-emerald-500/20 text-emerald-400';
-                                }
-                                return `<div class="w-6 h-6 rounded-lg border flex items-center justify-center text-[9px] font-black italic transition-all ${color}">${text}</div>`;
-                            }).join('')}
-                        </div>
+                        <div class="flex gap-1.5 mr-1">${slots.map((s, idx) => {
+                            let color = 'bg-white/5 border-white/5 text-slate-800';
+                            let text = '';
+                            if (s) {
+                                text = s.run;
+                                if (s.type === 'wicket') { color = 'bg-rose-500 border-rose-400 text-white'; text = 'W'; }
+                                else if (s.run === 4) color = 'bg-blue-600 border-blue-400 text-white';
+                                else if (s.run === 6) color = 'bg-amber-500 border-amber-400 text-white';
+                                else if (s.type === 'wide') { color = 'bg-slate-800 text-slate-400'; text = 'wd'; }
+                                else if (s.type === 'noball') { color = 'bg-slate-800 text-slate-400'; text = 'nb'; }
+                                else color = 'bg-emerald-500/20 border-emerald-500/20 text-emerald-400';
+                            }
+                            return `<div class="w-6 h-6 rounded-lg border flex items-center justify-center text-[9px] font-black italic transition-all ${color}">${text}</div>`;
+                        }).join('')}</div>
                     </div>
                 </div>
             `;
@@ -547,7 +580,6 @@
                 else if (ball.run === 6) colorClass = 'bg-amber-500 border-amber-400 text-white';
                 else if (ball.type === 'wide') ballText = `${ball.run}WD`;
                 else if (ball.type === 'noball') ballText = `${ball.run}NB`;
-                
                 const isNewest = index === log.length - 1;
                 htmlElements.push(`<div class="w-11 h-11 shrink-0 rounded-xl border flex items-center justify-center font-black text-xs transition-all ${colorClass} italic ${isNewest ? 'animate-ball-pop' : ''}">${ballText}</div>`);
             });
@@ -568,9 +600,10 @@
                     <button onclick="window.addBall(6)" class="aspect-square rounded-2xl bg-amber-500 border border-amber-400 text-white shadow-lg flex items-center justify-center font-black text-2xl italic border-b-2 border-b-amber-700">6</button>
                     <button onclick="window.addBall(0, 'wide')" class="aspect-square rounded-2xl bg-[#0f172a] border border-white/5 text-slate-500 font-black text-[9px] transition-all uppercase tracking-tighter italic border-b-2 border-b-black">WIDE</button>
                     <button onclick="window.addBall(0, 'wicket')" class="aspect-square rounded-2xl bg-rose-600 border border-rose-400 text-white shadow-lg flex items-center justify-center italic border-b-2 border-b-rose-900"><i data-lucide="skull" class="w-7 h-7"></i></button>
-                    <div class="col-span-4 grid grid-cols-2 gap-3 mb-2">
-                         <button onclick="window.addBall(0, 'noball')" class="py-4 rounded-2xl bg-[#1e293b]/30 border border-white/5 font-black text-[10px] uppercase tracking-widest text-slate-500 flex items-center justify-center gap-3 italic"><i data-lucide="footprints" class="w-4 h-4"></i> NO BALL</button>
-                         <button onclick="window.undoLast()" class="py-4 rounded-2xl bg-[#1e293b]/30 border border-white/5 font-black text-[10px] uppercase tracking-widest text-slate-500 flex items-center justify-center gap-3 italic"><i data-lucide="rotate-ccw" class="w-4 h-4"></i> UNDO</button>
+                    <div class="col-span-4 grid grid-cols-3 gap-3 mb-2">
+                         <button onclick="window.addBall(0, 'noball')" class="py-4 rounded-2xl bg-[#1e293b]/30 border border-white/5 font-black text-[8px] uppercase tracking-widest text-slate-500 flex items-center justify-center gap-2 italic leading-none"><i data-lucide="footprints" class="w-3.5 h-3.5"></i> NO BALL</button>
+                         <button onclick="window.undoLast()" class="py-4 rounded-2xl bg-[#1e293b]/30 border border-white/5 font-black text-[8px] uppercase tracking-widest text-slate-500 flex items-center justify-center gap-2 italic leading-none"><i data-lucide="rotate-ccw" class="w-3.5 h-3.5"></i> UNDO</button>
+                         <button onclick="window.abandonMatch()" class="py-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 font-black text-[8px] uppercase tracking-widest text-rose-500 flex items-center justify-center gap-2 italic leading-none"><i data-lucide="octagon-x" class="w-3.5 h-3.5"></i> ABANDON</button>
                     </div>
                 </div>
             `;
@@ -580,7 +613,6 @@
             const player = state.activeStatsPlayer;
             const stats = state.playerStats[player] || INITIAL_STATE.playerStats[player];
             const sr = stats.ballsFaced > 0 ? ((stats.runs / stats.ballsFaced) * 100).toFixed(1) : '0.0';
-
             return `
                 <div class="p-5 flex-1 overflow-y-auto space-y-8 no-scrollbar animate-in fade-in duration-500">
                     <div class="flex items-center justify-between gap-3">
@@ -599,83 +631,42 @@
                              <img src="${PLAYER_PHOTOS[player]}" class="w-14 h-14 rounded-2xl border border-emerald-500/20 object-cover shadow-lg bg-slate-900">
                         </div>
                         <div class="grid grid-cols-2 gap-4 mb-6">
-                            <div class="bg-white/5 p-5 rounded-[24px] text-center border border-white/5">
-                                <p class="text-[8px] text-slate-600 font-black mb-1 italic uppercase tracking-widest">Total Runs</p>
-                                <p class="text-3xl font-black text-white italic leading-none">${stats.runs}</p>
-                            </div>
-                            <div class="bg-white/5 p-5 rounded-[24px] text-center border border-white/5">
-                                <p class="text-[8px] text-slate-600 font-black mb-1 italic uppercase tracking-widest">Strike Rate</p>
-                                <p class="text-3xl font-black text-emerald-400 italic leading-none">${sr}</p>
-                            </div>
+                            <div class="bg-white/5 p-5 rounded-[24px] text-center border border-white/5"><p class="text-[8px] text-slate-600 font-black mb-1 italic">Total Runs</p><p class="text-3xl font-black text-white italic leading-none">${stats.runs}</p></div>
+                            <div class="bg-white/5 p-5 rounded-[24px] text-center border border-white/5"><p class="text-[8px] text-slate-600 font-black mb-1 italic">Strike Rate</p><p class="text-3xl font-black text-emerald-400 italic leading-none">${sr}</p></div>
                         </div>
                         <div class="grid grid-cols-3 gap-3 mb-6">
-                            <div class="text-center bg-black/20 py-4 rounded-2xl border border-white/5">
-                                <p class="text-[7px] text-slate-600 font-black italic uppercase">Highest</p>
-                                <p class="text-xl font-black text-white italic leading-none mt-1">${stats.highestScore || 0}</p>
-                            </div>
-                            <div class="text-center bg-black/20 py-4 rounded-2xl border border-white/5">
-                                <p class="text-[7px] text-slate-600 font-black italic uppercase">100s</p>
-                                <p class="text-xl font-black text-amber-500 italic leading-none mt-1">${stats.hundreds || 0}</p>
-                            </div>
-                            <div class="text-center bg-black/20 py-4 rounded-2xl border border-white/5">
-                                <p class="text-[7px] text-slate-600 font-black italic uppercase">50s</p>
-                                <p class="text-xl font-black text-blue-500 italic leading-none mt-1">${stats.fifties || 0}</p>
-                            </div>
+                            <div class="text-center bg-black/20 py-4 rounded-2xl border border-white/5"><p class="text-[7px] text-slate-600 font-black italic uppercase">Highest</p><p class="text-xl font-black text-white italic leading-none mt-1">${stats.highestScore || 0}</p></div>
+                            <div class="text-center bg-black/20 py-4 rounded-2xl border border-white/5"><p class="text-[7px] text-slate-600 font-black italic uppercase">100s</p><p class="text-xl font-black text-amber-500 italic leading-none mt-1">${stats.hundreds || 0}</p></div>
+                            <div class="text-center bg-black/20 py-4 rounded-2xl border border-white/5"><p class="text-[7px] text-slate-600 font-black italic uppercase">50s</p><p class="text-xl font-black text-blue-500 italic leading-none mt-1">${stats.fifties || 0}</p></div>
                         </div>
                         <div class="grid grid-cols-3 gap-3">
-                            <div class="text-center bg-black/20 py-4 rounded-2xl border border-white/5">
-                                <p class="text-[7px] text-slate-600 font-black italic">6s</p>
-                                <p class="text-xl font-black text-amber-400 italic leading-none">${stats.sixes}</p>
-                            </div>
-                            <div class="text-center bg-black/20 py-4 rounded-2xl border border-white/5">
-                                <p class="text-[7px] text-slate-600 font-black italic">4s</p>
-                                <p class="text-xl font-black text-blue-400 italic leading-none">${stats.fours}</p>
-                            </div>
-                            <div class="text-center bg-emerald-500/10 py-4 rounded-2xl border border-emerald-500/20">
-                                <p class="text-[7px] text-emerald-500 font-black italic uppercase">Wins</p>
-                                <p class="text-xl font-black text-emerald-400 italic leading-none">${stats.wins}</p>
-                            </div>
+                            <div class="text-center bg-black/20 py-4 rounded-2xl border border-white/5"><p class="text-[7px] text-slate-600 font-black italic">6s</p><p class="text-xl font-black text-amber-400 italic leading-none">${stats.sixes}</p></div>
+                            <div class="text-center bg-black/20 py-4 rounded-2xl border border-white/5"><p class="text-[7px] text-slate-600 font-black italic">4s</p><p class="text-xl font-black text-blue-400 italic leading-none">${stats.fours}</p></div>
+                            <div class="text-center bg-emerald-500/10 py-4 rounded-2xl border border-emerald-500/20"><p class="text-[7px] text-emerald-500 font-black italic uppercase">Wins</p><p class="text-xl font-black text-emerald-400 italic leading-none">${stats.wins}</p></div>
                         </div>
                     </div>
                 </div>
             `;
         }
 
-        // Refactored Modal Functions to prevent lag and ensure button functionality
         function renderSetupModalHTML() {
             return `
                 <div class="fixed inset-0 z-[100] flex items-end sm:items-center justify-center bg-[#020617]/95 backdrop-blur-2xl animate-in fade-in duration-300">
                     <div class="w-full max-w-md bg-[#0f172a] p-8 pb-12 rounded-t-[50px] border-t border-emerald-500/20 shadow-2xl animate-in slide-in-from-bottom duration-500 overflow-y-auto max-h-[90vh] no-scrollbar">
                         <div class="w-16 h-1.5 bg-slate-800 rounded-full mx-auto mb-10 opacity-50"></div>
                         <div class="flex items-center gap-5 mb-10 px-2">
-                            <div class="w-12 h-12 bg-emerald-500/10 rounded-2xl flex items-center justify-center border border-emerald-500/30">
-                                <i data-lucide="settings" class="text-emerald-400 w-6 h-6 animate-spin-slow"></i>
-                            </div>
-                            <div>
-                                <h2 class="text-2xl font-black text-white uppercase italic tracking-tighter leading-none">Configure Duel</h2>
-                                <p class="text-slate-600 text-[10px] font-black uppercase tracking-[0.4em] mt-2 italic leading-none">V11 Elite Setup</p>
-                            </div>
+                            <div class="w-12 h-12 bg-emerald-500/10 rounded-2xl flex items-center justify-center border border-emerald-500/30"><i data-lucide="settings" class="text-emerald-400 w-6 h-6 animate-spin-slow"></i></div>
+                            <div><h2 class="text-2xl font-black text-white uppercase italic tracking-tighter leading-none">Configure Duel</h2><p class="text-slate-600 text-[10px] font-black uppercase tracking-[0.4em] mt-2 italic leading-none">V11 Elite Setup</p></div>
                         </div>
-                        
-                        <div class="space-y-10">
+                        <div class="space-y-12">
                             <div class="text-center">
                                 <p class="text-[10px] font-black text-slate-500 tracking-[0.5em] mb-5 uppercase italic opacity-80 leading-none">MATCH OVERS</p>
-                                <div class="grid grid-cols-2 gap-4">
-                                    ${[10, 20].map(o => `
-                                        <button onclick="setSetting('overs', ${o})" class="py-6 rounded-3xl border transition-all font-black text-[12px] ${state.settings.overs === o ? 'bg-emerald-500 border-emerald-400 text-white shadow-xl shadow-emerald-500/20' : 'border-white/5 bg-black/20 text-slate-600'} italic uppercase tracking-widest leading-none">${o} OVERS</button>
-                                    `).join('')}
-                                </div>
+                                <div class="grid grid-cols-2 gap-4">${[10, 20].map(o => `<button onclick="setSetting('overs', ${o})" class="py-6 rounded-3xl border transition-all font-black text-[12px] ${state.settings.overs === o ? 'bg-emerald-500 border-emerald-400 text-white shadow-xl shadow-emerald-500/20' : 'border-white/5 bg-black/20 text-slate-600'} italic uppercase tracking-widest leading-none">${o} OVERS</button>`).join('')}</div>
                             </div>
-
                             <div class="text-center">
                                 <p class="text-[10px] font-black text-slate-500 tracking-[0.5em] mb-5 uppercase italic opacity-80 leading-none">WICKET LIMIT</p>
-                                <div class="grid grid-cols-4 gap-3">
-                                    ${[1, 2, 5, 10].map(w => `
-                                        <button onclick="setSetting('wickets', ${w})" class="py-5 rounded-2xl border transition-all font-black text-sm ${state.settings.wickets === w ? 'bg-rose-600 border-rose-400 text-white shadow-lg shadow-rose-600/20' : 'border-white/5 bg-black/20 text-slate-600'} italic leading-none">${w}</button>
-                                    `).join('')}
-                                </div>
+                                <div class="grid grid-cols-4 gap-3">${[1, 2, 5, 10].map(w => `<button onclick="setSetting('wickets', ${w})" class="py-5 rounded-2xl border transition-all font-black text-sm ${state.settings.wickets === w ? 'bg-rose-600 border-rose-400 text-white shadow-lg shadow-rose-600/20' : 'border-white/5 bg-black/20 text-slate-600'} italic leading-none">${w}</button>`).join('')}</div>
                             </div>
-
                             <div class="text-center">
                                 <p class="text-[10px] font-black text-slate-500 tracking-[0.5em] mb-5 uppercase italic opacity-80 leading-none">TOSS DECISION</p>
                                 <div class="grid grid-cols-2 gap-4 mb-6">
@@ -687,10 +678,35 @@
                                     <button onclick="setTossChoice('Bowl')" class="py-5 rounded-2xl border transition-all font-black text-[10px] ${state.match.tossChoice === 'Bowl' ? 'bg-amber-500 text-black border-amber-400 shadow-lg' : 'border-white/5 bg-black/20 text-slate-600'} uppercase italic tracking-widest leading-none">Bowl First</button>
                                 </div>
                             </div>
-
                             <div class="flex gap-4 pt-4">
                                  <button onclick="toggleSetupModal(false)" class="flex-1 py-6 rounded-[30px] bg-slate-900 font-black text-[11px] uppercase text-slate-600 italic tracking-[0.2em] leading-none">Cancel</button>
-                                 <button onclick="finalizeMatchSetup()" class="flex-[2] py-6 rounded-[30px] bg-emerald-500 font-black text-[12px] uppercase text-white shadow-2xl shadow-emerald-500/30 italic tracking-[0.4em] leading-none border-b-4 border-emerald-700">Launch Duel</button>
+                                 <button id="launch-btn" onclick="finalizeMatchSetup()" class="flex-[2] py-6 rounded-[30px] bg-emerald-500 font-black text-[12px] uppercase text-white shadow-2xl shadow-emerald-500/30 italic tracking-[0.4em] leading-none border-b-4 border-emerald-700">Launch Duel</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function renderSecurityModalHTML() {
+            return `
+                <div class="fixed inset-0 z-[100] flex items-center justify-center bg-[#020617]/95 backdrop-blur-2xl animate-in fade-in duration-300 p-6">
+                    <div class="w-full max-w-sm bg-[#0f172a] p-8 rounded-[40px] border border-white/5 shadow-2xl text-center">
+                        <div class="w-16 h-16 bg-rose-500/10 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                            <i data-lucide="lock" class="text-rose-500 w-8 h-8"></i>
+                        </div>
+                        <h2 class="text-2xl font-black text-white uppercase italic tracking-tighter leading-none mb-2">Restricted Action</h2>
+                        <p class="text-slate-500 text-[10px] font-black uppercase tracking-[0.2em] mb-8 italic opacity-60">Enter PIN to Clear Archive</p>
+                        
+                        <div class="space-y-6">
+                            <input type="password" id="security-pass" placeholder="••••" 
+                                class="w-full bg-black/40 border-2 ${state.securityError ? 'border-rose-500' : 'border-white/5'} rounded-2xl py-4 text-center text-2xl tracking-[1em] text-white focus:outline-none transition-colors">
+                            
+                            ${state.securityError ? `<p class="text-[9px] font-black text-rose-500 uppercase italic tracking-widest animate-pulse">Invalid Credentials</p>` : ''}
+
+                            <div class="flex gap-4 pt-4">
+                                <button onclick="toggleSecurityModal(false)" class="flex-1 py-5 rounded-2xl bg-slate-900 font-black text-[10px] uppercase text-slate-500 italic">Cancel</button>
+                                <button onclick="verifyHistoryDelete()" class="flex-[2] py-5 rounded-2xl bg-rose-500 font-black text-[10px] uppercase text-white italic shadow-lg shadow-rose-500/20 border-b-4 border-rose-700">Wipe Data</button>
                             </div>
                         </div>
                     </div>
@@ -699,18 +715,14 @@
         }
 
         function renderMessageModalHTML(title, msg, btnText, actionStr) {
-            return `
-                <div class="fixed inset-0 z-[110] flex items-center justify-center p-8 bg-[#020617]/99 backdrop-blur-3xl animate-in fade-in duration-300">
-                    <div class="w-full max-w-[300px] bg-[#1e293b]/60 border border-white/5 p-10 rounded-[40px] text-center shadow-2xl relative">
-                        <div class="w-16 h-16 bg-emerald-500/10 rounded-2xl flex items-center justify-center mx-auto mb-6">
-                            <i data-lucide="info" class="text-emerald-400"></i>
-                        </div>
-                        <h2 class="text-3xl font-black mb-4 text-white uppercase italic leading-none">${title}</h2>
-                        <p class="text-slate-400 mb-10 font-bold text-[9px] uppercase tracking-widest opacity-60">${msg}</p>
-                        <button onclick="${actionStr}" class="w-full bg-emerald-600 py-6 rounded-2xl font-black text-[10px] uppercase text-white shadow-lg italic">${btnText}</button>
-                    </div>
+            return `<div class="fixed inset-0 z-[110] flex items-center justify-center p-8 bg-[#020617]/99 backdrop-blur-3xl animate-in fade-in duration-300">
+                <div class="w-full max-w-[300px] bg-[#1e293b]/60 border border-white/5 p-10 rounded-[40px] text-center shadow-2xl relative">
+                    <div class="w-16 h-16 bg-emerald-500/10 rounded-2xl flex items-center justify-center mx-auto mb-6"><i data-lucide="info" class="text-emerald-400"></i></div>
+                    <h2 class="text-3xl font-black mb-4 text-white uppercase italic leading-none">${title}</h2>
+                    <p class="text-slate-400 mb-10 font-bold text-[9px] uppercase tracking-widest opacity-60">${msg}</p>
+                    <button onclick="${actionStr}" class="w-full bg-emerald-600 py-6 rounded-2xl font-black text-[10px] uppercase text-white shadow-lg italic">${btnText}</button>
                 </div>
-            `;
+            </div>`;
         }
 
         function renderVictoryModalHTML() {
@@ -722,25 +734,20 @@
                 const color = ['#10b981', '#fbbf24', '#3b82f6', '#f43f5e'][Math.floor(Math.random()*4)];
                 confettiHtml += `<div class="confetti" style="left:${left}vw; animation-delay:${delay}s; background:${color}"></div>`;
             }
-
-            return `
-                <div class="fixed inset-0 z-[110] flex items-center justify-center p-6 bg-[#020617]/98 backdrop-blur-3xl animate-in fade-in duration-500">
-                    ${confettiHtml}
-                    <div class="w-full max-w-[320px] bg-gradient-to-b from-[#1e3a8a]/40 to-[#020617] border border-emerald-500/20 p-10 rounded-[50px] text-center shadow-2xl flex flex-col items-center relative z-[111]">
-                        <div class="w-20 h-20 bg-emerald-500 rounded-3xl overflow-hidden mb-6 shadow-xl border-4 border-[#020617] animate-bounce">
-                            <img src="${PLAYER_PHOTOS[m.winner]}" class="w-full h-full object-cover">
-                        </div>
-                        <h2 class="text-4xl font-black mb-1 text-white uppercase italic leading-tight">${m.winner}</h2>
-                        <p class="text-emerald-400 font-black text-[9px] uppercase tracking-[0.4em] mb-8 italic">Match Winner</p>
-                        <div class="bg-black/40 rounded-[30px] p-6 mb-10 border border-white/5 w-full flex justify-around items-center">
-                            <div><p class="text-[7px] text-slate-600 font-black uppercase mb-1 tracking-widest">Score</p><p class="text-2xl font-black text-white italic leading-none">${m.score}/${m.wickets}</p></div>
-                            <div class="w-px h-6 bg-white/10"></div>
-                            <div><p class="text-[7px] text-slate-600 font-black uppercase mb-1 tracking-widest">Overs</p><p class="text-2xl font-black text-white italic leading-none">${formatOvers(m.balls)}</p></div>
-                        </div>
-                        <button onclick="window.resetMatchAndRemove()" class="w-full bg-emerald-500 text-white py-5 rounded-3xl font-black tracking-widest text-[10px] uppercase italic">Close Hub</button>
+            return `<div class="fixed inset-0 z-[110] flex items-center justify-center p-6 bg-[#020617]/98 backdrop-blur-3xl animate-in fade-in duration-500">
+                ${confettiHtml}
+                <div class="w-full max-w-[320px] bg-gradient-to-b from-[#1e3a8a]/40 to-[#020617] border border-emerald-500/20 p-10 rounded-[50px] text-center shadow-2xl flex flex-col items-center relative z-[111]">
+                    <div class="w-20 h-20 bg-emerald-500 rounded-3xl overflow-hidden mb-6 shadow-xl border-4 border-[#020617] animate-bounce"><img src="${PLAYER_PHOTOS[m.winner]}" class="w-full h-full object-cover"></div>
+                    <h2 class="text-4xl font-black mb-1 text-white uppercase italic leading-tight">${m.winner}</h2>
+                    <p class="text-emerald-400 font-black text-[9px] uppercase tracking-[0.4em] mb-8 italic">Match Winner</p>
+                    <div class="bg-black/40 rounded-[30px] p-6 mb-10 border border-white/5 w-full flex justify-around items-center">
+                        <div><p class="text-[7px] text-slate-600 font-black uppercase mb-1 tracking-widest">Score</p><p class="text-2xl font-black text-white italic leading-none">${m.score}/${m.wickets}</p></div>
+                        <div class="w-px h-6 bg-white/10"></div>
+                        <div><p class="text-[7px] text-slate-600 font-black uppercase mb-1 tracking-widest">Overs</p><p class="text-2xl font-black text-white italic leading-none">${formatOvers(m.balls)}</p></div>
                     </div>
+                    <button onclick="window.resetMatchAndRemove()" class="w-full bg-emerald-500 text-white py-5 rounded-3xl font-black tracking-widest text-[10px] uppercase italic">Close Hub</button>
                 </div>
-            `;
+            </div>`;
         }
 
         window.onload = initApp;
