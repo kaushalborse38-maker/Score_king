@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cricket Pro - Scorer App</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- React & Babel CDNs -->
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Lucide Icons CDN -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://unpkg.com/lucide-react@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #020617;
+            color: #e2e8f0;
+            margin: 0;
+            padding: 0;
+            overflow-x: hidden;
+        }
+
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideInUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        
+        .animate-in { animation: fadeIn 0.4s ease-out forwards; }
+        .slide-in-from-bottom-6 { animation: slideInUp 0.4s ease-out forwards; }
+
+        .stats-toggle-active {
+            color: white !important;
+            font-weight: 900;
+        }
+
+        #root {
+            display: flex;
+            justify-content: center;
+            min-height: 100vh;
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        /**
+         * Cricket Scorer App - V12
+         * This version uses a secure scoping pattern to avoid global constant redeclaration errors.
+         */
+        (function(React, ReactDOM) {
+            const { useState, useEffect, useRef, Fragment } = React;
+
+            // Utility to access Lucide icons safely without destructuring into the scope
+            const getIcon = (name) => {
+                const lib = window.LucideReact || window.lucideReact;
+                return lib ? lib[name] : null;
+            };
+
+            const CricketIcon = ({ name, ...props }) => {
+                const IconComponent = getIcon(name);
+                if (!IconComponent) {
+                    return (
+                        <svg width={props.size || 24} height={props.size || 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
+                            <circle cx="12" cy="12" r="10" />
+                        </svg>
+                    );
+                }
+                return <IconComponent {...props} />;
+            };
+
+            const App = () => {
+                const [activeTab, setActiveTab] = useState('dashboard');
+                const [statsPlayer, setStatsPlayer] = useState('Kaushal'); 
+                const [showInningsModal, setShowInningsModal] = useState(false);
+                const [showScorecardView, setShowScorecardView] = useState(false);
+                const [showExitConfirm, setShowExitConfirm] = useState(false);
+                const ballLogRef = useRef(null);
+                
+                const [playerStats, setPlayerStats] = useState(() => {
+                    const saved = localStorage.getItem('cricket_pro_stats_v12');
+                    return saved ? JSON.parse(saved) : {
+                        Kaushal: { runs: 0, wins: 0, matches: 0, dots: 0, ones: 0, fours: 0, sixes: 0, wickets: 0, balls: 0 },
+                        Sumit: { runs: 0, wins: 0, matches: 0, dots: 0, ones: 0, fours: 0, sixes: 0, wickets: 0, balls: 0 }
+                    };
+                });
+
+                const [matchHistory, setMatchHistory] = useState(() => {
+                    const saved = localStorage.getItem('cricket_pro_history_v12');
+                    return saved ? JSON.parse(saved) : [];
+                });
+
+                useEffect(() => {
+                    localStorage.setItem('cricket_pro_stats_v12', JSON.stringify(playerStats));
+                    localStorage.setItem('cricket_pro_history_v12', JSON.stringify(matchHistory));
+                }, [playerStats, matchHistory]);
+
+                const [matchSetup, setMatchSetup] = useState({
+                    overs: 5,
+                    wickets: 2,
+                    lastManStand: false,
+                    tossWinner: 'Kaushal',
+                    tossChoice: 'Bat'
+                });
+
+                const [currentMatch, setCurrentMatch] = useState(null);
+
+                useEffect(() => {
+                    if (ballLogRef.current) {
+                        ballLogRef.current.scrollLeft = ballLogRef.current.scrollWidth;
+                    }
+                }, [currentMatch?.overLog]);
+
+                const startMatch = () => {
+                    const batFirst = matchSetup.tossChoice === 'Bat' ? matchSetup.tossWinner : (matchSetup.tossWinner === 'Kaushal' ? 'Sumit' : 'Kaushal');
+                    const bowlFirst = batFirst === 'Kaushal' ? 'Sumit' : 'Kaushal';
+
+                    setCurrentMatch({
+                        innings: 1,
+                        batting: batFirst,
+                        bowling: bowlFirst,
+                        runs: 0,
+                        wickets: 0,
+                        balls: 0,
+                        overLog: [], 
+                        fullLog: [],
+                        stats: { dots: 0, ones: 0, twos: 0, threes: 0, fours: 0, sixes: 0, extras: 0 },
+                        innings1Score: null,
+                        isFinished: false,
+                        summary: "",
+                        winner: null,
+                        target: null
+                    });
+                    setActiveTab('scoring');
+                };
+
+                const handleScore = (val, type = 'run') => {
+                    if (!currentMatch || currentMatch.isFinished) return;
+
+                    const updatedMatch = { ...currentMatch };
+                    const newEntry = { val, type };
+                    updatedMatch.fullLog = [...updatedMatch.fullLog, newEntry];
+
+                    if (type === 'run') {
+                        updatedMatch.runs += val;
+                        updatedMatch.balls += 1;
+                        updatedMatch.overLog = [...updatedMatch.overLog, val];
+                        if (val === 0) updatedMatch.stats.dots++;
+                        else if (val === 1) updatedMatch.stats.ones++;
+                        else if (val === 2) updatedMatch.stats.twos++;
+                        else if (val === 3) updatedMatch.stats.threes++;
+                        else if (val === 4) updatedMatch.stats.fours++;
+                        else if (val === 6) updatedMatch.stats.sixes++;
+                    } else if (type === 'wide' || type === 'noball') {
+                        updatedMatch.runs += 1 + val;
+                        updatedMatch.stats.extras += 1;
+                        updatedMatch.overLog = [...updatedMatch.overLog, type === 'wide' ? 'Wd' : 'Nb'];
+                    } else if (type === 'wicket') {
+                        updatedMatch.wickets += 1;
+                        updatedMatch.balls += 1;
+                        updatedMatch.stats.dots++; 
+                        updatedMatch.overLog = [...updatedMatch.overLog, 'W'];
+                    }
+
+                    checkMatchStatus(updatedMatch);
+                };
+
+                const undoLastBall = () => {
+                    if (!currentMatch || currentMatch.fullLog.length === 0) return;
+                    const newLog = [...currentMatch.fullLog];
+                    newLog.pop();
+                    
+                    const resetStats = { dots: 0, ones: 0, twos: 0, threes: 0, fours: 0, sixes: 0, extras: 0 };
+                    let r = 0, w = 0, b = 0;
+                    let oLog = [];
+
+                    newLog.forEach(action => {
+                        if (action.type === 'run') {
+                            r += action.val; b += 1; oLog.push(action.val);
+                            if (action.val === 0) resetStats.dots++;
+                            else if (action.val === 1) resetStats.ones++;
+                            else if (action.val === 2) resetStats.twos++;
+                            else if (action.val === 3) resetStats.threes++;
+                            else if (action.val === 4) resetStats.fours++;
+                            else if (action.val === 6) resetStats.sixes++;
+                        } else if (action.type === 'wicket') {
+                            w += 1; b += 1; oLog.push('W'); resetStats.dots++;
+                        } else if (action.type === 'wide' || action.type === 'noball') {
+                            r += 1 + action.val; resetStats.extras++; oLog.push(action.type === 'wide' ? 'Wd' : 'Nb');
+                        }
+                    });
+
+                    setCurrentMatch({
+                        ...currentMatch,
+                        fullLog: newLog,
+                        runs: r,
+                        wickets: w,
+                        balls: b,
+                        overLog: oLog,
+                        stats: resetStats
+                    });
+                };
+
+                const checkMatchStatus = (match) => {
+                    const limitBalls = matchSetup.overs * 6;
+                    const isWicketsOut = match.wickets >= matchSetup.wickets;
+                    const isOversDone = match.balls >= limitBalls;
+
+                    if (match.innings === 2 && match.runs >= match.target) {
+                        match.winner = match.batting;
+                        match.summary = `${match.batting} won by ${matchSetup.wickets - match.wickets} wickets!`;
+                        match.isFinished = true;
+                        saveInningsStats(match); 
+                        saveMatchHistory(match);
+                        setShowInningsModal(true);
+                        return;
+                    }
+
+                    if (isWicketsOut || isOversDone) {
+                        if (match.innings === 2) {
+                            if (match.runs === match.innings1Score) {
+                                match.summary = "Match Tied!";
+                            } else {
+                                match.winner = match.bowling;
+                                match.summary = `${match.bowling} won by ${match.innings1Score - match.runs} runs!`;
+                            }
+                            match.isFinished = true;
+                            saveMatchHistory(match);
+                        }
+                        saveInningsStats(match); 
+                        setShowInningsModal(true);
+                        setCurrentMatch(match);
+                    } else {
+                        setCurrentMatch(match);
+                    }
+                };
+
+                const proceedToNextInnings = () => {
+                    setShowInningsModal(false);
+                    if (!currentMatch) return;
+                    
+                    if (currentMatch.isFinished) {
+                        setCurrentMatch(null);
+                        setActiveTab('dashboard');
+                        return;
+                    }
+
+                    const match = { ...currentMatch };
+                    if (match.innings === 1) {
+                        match.innings = 2;
+                        match.innings1Score = match.runs;
+                        match.target = match.runs + 1;
+                        match.batting = currentMatch.bowling;
+                        match.bowling = currentMatch.batting;
+                        match.runs = 0;
+                        match.wickets = 0;
+                        match.balls = 0;
+                        match.overLog = [];
+                        match.fullLog = [];
+                        match.stats = { dots: 0, ones: 0, twos: 0, threes: 0, fours: 0, sixes: 0, extras: 0 };
+                        setCurrentMatch(match);
+                    }
+                };
+
+                const saveInningsStats = (match) => {
+                    const newStats = { ...playerStats };
+                    const batter = match.batting;
+                    const bowler = match.bowling;
+
+                    newStats[batter].runs += match.runs;
+                    newStats[batter].balls += match.balls;
+                    newStats[batter].dots += match.stats.dots;
+                    newStats[batter].ones += (match.stats.ones + match.stats.twos + match.stats.threes);
+                    newStats[batter].fours += match.stats.fours;
+                    newStats[batter].sixes += match.stats.sixes;
+                    newStats[bowler].wickets += match.wickets;
+
+                    setPlayerStats(newStats);
+                };
+
+                const saveMatchHistory = (match) => {
+                    const winnerName = match.winner;
+                    const newStats = { ...playerStats };
+                    newStats.Kaushal.matches += 1;
+                    newStats.Sumit.matches += 1;
+                    if (winnerName) newStats[winnerName].wins += 1;
+                    
+                    setMatchHistory([{
+                        id: Date.now(),
+                        date: new Date().toLocaleDateString(),
+                        summary: match.summary,
+                        score: `${match.batting} vs ${match.bowling}`,
+                        winner: winnerName
+                    }, ...matchHistory]);
+                    setPlayerStats(newStats);
+                };
+
+                const exitMatch = () => {
+                    if (currentMatch?.isFinished) {
+                        setCurrentMatch(null);
+                        setActiveTab('dashboard');
+                    } else {
+                        setShowExitConfirm(true);
+                    }
+                };
+
+                const PlayerAvatar = ({ name, size = "lg" }) => (
+                    <div className={`${size === 'lg' ? 'w-24 h-24' : 'w-12 h-12'} rounded-full flex items-center justify-center border-4 ${name === 'Kaushal' ? 'bg-indigo-600 border-indigo-400' : 'bg-orange-600 border-orange-400'} shadow-2xl transition-all`}>
+                        <span className={`${size === 'lg' ? 'text-4xl' : 'text-xl'} font-black text-white uppercase`}>{name ? name[0] : '?'}</span>
+                    </div>
+                );
+
+                const StatBox = ({ iconName, label, value, colorClass = "text-white" }) => (
+                    <div className="bg-slate-900/60 border border-slate-800 p-5 rounded-[2rem] flex items-center gap-4 shadow-sm">
+                        <div className="p-3 bg-slate-800 rounded-2xl">
+                            <CricketIcon name={iconName} size={20} className="text-slate-400" />
+                        </div>
+                        <div>
+                            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest leading-none mb-1.5">{label}</p>
+                            <p className={`text-2xl font-black ${colorClass}`}>{value}</p>
+                        </div>
+                    </div>
+                );
+
+                const InningsModal = () => {
+                    if (!showInningsModal || !currentMatch) return null;
+                    const m = currentMatch;
+                    const isGameOver = m.isFinished;
+                    const srVal = m.balls > 0 ? ((m.runs / m.balls) * 100).toFixed(1) : "0.0";
+
+                    return (
+                        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-950/95 backdrop-blur-md animate-in">
+                            <div className="bg-slate-900 w-full max-w-sm rounded-[3rem] border border-slate-800 shadow-2xl overflow-hidden animate-in zoom-in-95">
+                                <div className="p-8 flex flex-col items-center text-center">
+                                    {isGameOver && (
+                                        <div className="mb-4 bg-amber-500/10 p-4 rounded-full animate-bounce">
+                                            <CricketIcon name="PartyPopper" className="text-amber-500" size={40} />
+                                        </div>
+                                    )}
+                                    
+                                    <div className="mb-4 relative">
+                                        <PlayerAvatar name={isGameOver ? m.winner : m.batting} />
+                                        <div className="absolute -bottom-2 -right-2 bg-emerald-500 text-slate-950 p-2 rounded-full shadow-lg">
+                                            <CricketIcon name="Trophy" size={18} strokeWidth={3} />
+                                        </div>
+                                    </div>
+                                    
+                                    {isGameOver ? (
+                                        <div className="mb-6">
+                                            <h2 className="text-sm font-black text-emerald-400 uppercase tracking-[0.25em] mb-1">Victory!</h2>
+                                            <h1 className="text-4xl font-black text-white italic uppercase tracking-tighter">{m.winner} Wins</h1>
+                                        </div>
+                                    ) : (
+                                        <div className="mb-6">
+                                            <h2 className="text-3xl font-black text-white italic uppercase tracking-tighter">{m.batting}</h2>
+                                            <p className="text-emerald-400 font-bold text-xs tracking-widest uppercase">Innings {m.innings} Finished</p>
+                                        </div>
+                                    )}
+
+                                    <div className="w-full bg-slate-950/50 rounded-[2.5rem] p-6 border border-slate-800/50 mb-8">
+                                        <div className="grid grid-cols-2 gap-y-6 gap-x-2">
+                                            <div className="text-left">
+                                                <p className="text-[10px] font-bold text-slate-500 uppercase">Runs</p>
+                                                <p className="text-3xl font-black text-white leading-none">{m.runs}</p>
+                                            </div>
+                                            <div className="text-right">
+                                                <p className="text-[10px] font-bold text-slate-500 uppercase">Balls</p>
+                                                <p className="text-3xl font-black text-white leading-none">{m.balls}</p>
+                                            </div>
+                                            <div className="text-left">
+                                                <p className="text-[10px] font-bold text-slate-500 uppercase">SR</p>
+                                                <p className="text-3xl font-black text-emerald-400 leading-none">{srVal}</p>
+                                            </div>
+                                            <div className="text-right">
+                                                <p className="text-[10px] font-bold text-slate-500 uppercase">Boundaries</p>
+                                                <p className="text-3xl font-black text-white leading-none">{m.stats.fours}/{m.stats.sixes}</p>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <button 
+                                        onClick={proceedToNextInnings}
+                                        className="w-full py-6 bg-emerald-500 text-slate-950 font-black rounded-[2rem] text-xl shadow-2xl shadow-emerald-500/20 active:scale-95 transition-transform uppercase border-b-4 border-emerald-700"
+                                    >
+                                        {isGameOver ? "Return Home" : (m.innings === 1 ? "Start Innings 2" : "View Results")}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                };
+
+                const ExitModal = () => {
+                    if (!showExitConfirm) return null;
+                    return (
+                        <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm animate-in">
+                            <div className="bg-slate-900 p-8 rounded-[2.5rem] border border-slate-800 w-full max-w-sm text-center">
+                                <h3 className="text-xl font-black text-white mb-4 uppercase italic">Exit Match?</h3>
+                                <p className="text-slate-400 text-sm mb-8">All current match progress will be lost. Are you sure?</p>
+                                <div className="flex gap-4">
+                                    <button onClick={() => setShowExitConfirm(false)} className="flex-1 py-4 bg-slate-800 text-white font-bold rounded-2xl">Cancel</button>
+                                    <button onClick={() => { setCurrentMatch(null); setActiveTab('dashboard'); setShowExitConfirm(false); }} className="flex-1 py-4 bg-red-600 text-white font-bold rounded-2xl shadow-lg shadow-red-900/20">Exit</button>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                };
+
+                return (
+                    <div className="min-h-screen w-full max-w-md bg-slate-950 text-slate-200 font-sans relative overflow-hidden flex flex-col select-none shadow-2xl border-x border-slate-900">
+                        <InningsModal />
+                        <ExitModal />
+
+                        <div className="flex-1 overflow-y-auto no-scrollbar">
+                            {activeTab === 'dashboard' && (
+                                <div className="p-6 space-y-6 pb-24 animate-in">
+                                    <div className="flex items-center justify-between">
+                                        <h1 className="text-3xl font-black text-emerald-400 flex items-center gap-2 italic tracking-tighter">
+                                            <CricketIcon name="Zap" className="fill-emerald-400" size={28} /> CRICKET PRO
+                                        </h1>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-4">
+                                        {['Kaushal', 'Sumit'].map(name => (
+                                            <div key={name} className="bg-slate-900/80 border border-slate-800 p-6 rounded-[2.5rem] text-center space-y-3 shadow-xl backdrop-blur-sm">
+                                                <div className="flex justify-center"><PlayerAvatar name={name} size="sm" /></div>
+                                                <div>
+                                                    <p className="text-slate-500 text-[10px] uppercase font-black tracking-widest">{name}</p>
+                                                    <p className="text-5xl font-black text-white tracking-tighter leading-tight">{playerStats[name].wins}</p>
+                                                    <p className="text-[10px] text-emerald-500 font-bold uppercase tracking-widest">Wins</p>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    <button onClick={() => setActiveTab('newMatch')} className="w-full bg-emerald-600 p-8 rounded-[3.5rem] shadow-2xl shadow-emerald-900/30 flex flex-col items-center justify-center text-white space-y-3 active:scale-95 transition-transform border-b-4 border-emerald-800">
+                                        <CricketIcon name="PlusCircle" size={44} />
+                                        <div className="text-center">
+                                            <h2 className="text-2xl font-black uppercase italic tracking-tighter">New Series</h2>
+                                            <p className="text-emerald-100 text-xs font-bold uppercase tracking-[0.2em] opacity-70">Start Match</p>
+                                        </div>
+                                    </button>
+
+                                    <div className="space-y-4">
+                                        <h3 className="text-[10px] font-black text-slate-600 uppercase tracking-[0.3em] px-4">Recent Match Logs</h3>
+                                        {matchHistory.length === 0 ? (
+                                            <div className="text-center py-12 bg-slate-900/40 rounded-[3rem] border border-dashed border-slate-800">
+                                                <p className="text-slate-600 text-sm italic font-medium">No match data found. Play a game!</p>
+                                            </div>
+                                        ) : (
+                                            matchHistory.slice(0, 5).map(match => (
+                                                <div key={match.id} className="bg-slate-900/60 border border-slate-800 p-5 rounded-[2rem] flex items-center justify-between shadow-sm backdrop-blur-sm">
+                                                    <div>
+                                                        <p className="text-white font-bold text-sm leading-tight mb-1">{match.summary}</p>
+                                                        <p className="text-slate-500 text-[10px] font-black uppercase tracking-tighter opacity-70">{match.date}</p>
+                                                    </div>
+                                                    <CricketIcon name="Trophy" size={18} className="text-amber-500" />
+                                                </div>
+                                            ))
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
+                            {activeTab === 'newMatch' && (
+                                <div className="p-6 space-y-8 pb-24 animate-in slide-in-from-bottom-6">
+                                    <div className="flex items-center gap-4">
+                                        <button onClick={() => setActiveTab('dashboard')} className="p-4 bg-slate-900 rounded-[1.5rem] text-slate-400 active:scale-90 transition-transform">
+                                            <CricketIcon name="ChevronLeft" size={24} />
+                                        </button>
+                                        <h1 className="text-2xl font-black text-white uppercase italic tracking-tighter">Setup Match</h1>
+                                    </div>
+
+                                    <div className="space-y-8">
+                                        <section className="space-y-4">
+                                            <label className="text-slate-500 text-[10px] uppercase font-black tracking-widest px-4">Match Overs</label>
+                                            <div className="grid grid-cols-4 gap-2">
+                                                {[1, 2, 5, 10].map(o => (
+                                                    <button key={o} onClick={() => setMatchSetup({...matchSetup, overs: o})} className={`py-5 rounded-[1.5rem] font-black transition-all ${matchSetup.overs === o ? 'bg-emerald-600 text-white shadow-xl shadow-emerald-900/40' : 'bg-slate-900 text-slate-500 border border-slate-800'}`}>
+                                                        {o}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </section>
+
+                                        <section className="space-y-4">
+                                            <label className="text-slate-500 text-[10px] uppercase font-black tracking-widest px-4">Wickets Limit</label>
+                                            <div className="flex items-center justify-between bg-slate-900 p-2 rounded-[2rem] border border-slate-800 shadow-inner">
+                                                <button onClick={() => setMatchSetup({...matchSetup, wickets: Math.max(1, matchSetup.wickets - 1)})} className="w-16 h-16 flex items-center justify-center bg-slate-800 rounded-2xl text-white font-black text-3xl active:scale-95 transition-transform">-</button>
+                                                <span className="text-4xl font-black text-white tracking-tighter">{matchSetup.wickets}</span>
+                                                <button onClick={() => setMatchSetup({...matchSetup, wickets: Math.min(10, matchSetup.wickets + 1)})} className="w-16 h-16 flex items-center justify-center bg-slate-800 rounded-2xl text-white font-black text-3xl active:scale-95 transition-transform">+</button>
+                                            </div>
+                                        </section>
+
+                                        <section className="space-y-4">
+                                            <label className="text-slate-500 text-[10px] uppercase font-black tracking-widest px-4">Toss Result</label>
+                                            <div className="grid grid-cols-2 gap-4">
+                                                {['Kaushal', 'Sumit'].map(p => (
+                                                    <button key={p} onClick={() => setMatchSetup({...matchSetup, tossWinner: p})} className={`py-6 rounded-[2.5rem] font-black transition-all flex flex-col items-center gap-3 ${matchSetup.tossWinner === p ? 'bg-slate-100 text-slate-950 scale-105 shadow-2xl' : 'bg-slate-900 text-slate-500 border border-slate-800'}`}>
+                                                        <PlayerAvatar name={p} size="sm" />
+                                                        <span className="text-sm tracking-widest uppercase">{p}</span>
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </section>
+
+                                        <section className="space-y-4">
+                                            <label className="text-slate-500 text-[10px] uppercase font-black tracking-widest px-4">Winner Chose To</label>
+                                            <div className="grid grid-cols-2 gap-4">
+                                                {['Bat', 'Bowl'].map(c => (
+                                                    <button key={c} onClick={() => setMatchSetup({...matchSetup, tossChoice: c})} className={`py-6 rounded-[2.5rem] font-black transition-all text-sm uppercase tracking-widest ${matchSetup.tossChoice === c ? 'bg-emerald-600 text-white shadow-xl shadow-emerald-900/40' : 'bg-slate-900 text-slate-500 border border-slate-800'}`}>
+                                                        {c} First
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </section>
+                                    </div>
+
+                                    <button onClick={startMatch} className="w-full py-7 bg-emerald-500 text-slate-950 font-black rounded-[3rem] text-2xl shadow-2xl shadow-emerald-500/30 uppercase tracking-tighter active:scale-95 transition-transform border-b-6 border-emerald-700 mt-6 italic">
+                                        Play Match
+                                    </button>
+                                </div>
+                            )}
+
+                            {activeTab === 'scoring' && currentMatch && (
+                                <div className="h-full flex flex-col bg-slate-950 animate-in">
+                                    <div className="p-8 bg-slate-900 rounded-b-[4rem] shadow-2xl border-b border-emerald-900/20 relative z-10">
+                                        <div className="flex justify-between items-center mb-8">
+                                            <div className="flex items-center gap-4">
+                                                <PlayerAvatar name={currentMatch.batting} size="sm" />
+                                                <div>
+                                                    <p className="text-[10px] font-black text-emerald-500 uppercase tracking-widest flex items-center gap-1.5 mb-0.5">
+                                                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shadow-sm shadow-emerald-500" />
+                                                        Innings 0{currentMatch.innings}
+                                                    </p>
+                                                    <h2 className="text-2xl font-black text-white uppercase italic tracking-tighter leading-none">{currentMatch.batting}</h2>
+                                                </div>
+                                            </div>
+                                            <button onClick={exitMatch} className="p-4 bg-slate-800 rounded-[1.5rem] text-slate-400 hover:text-white transition-all active:scale-90 shadow-xl border border-slate-700/50">
+                                                <CricketIcon name="Home" size={24} />
+                                            </button>
+                                        </div>
+
+                                        <div className="relative h-32 mb-6">
+                                            <div className={`absolute inset-0 flex items-center justify-between transition-all duration-500 transform ${showScorecardView ? '-translate-y-40 opacity-0 scale-90' : 'translate-y-0 opacity-100 scale-100'}`}>
+                                                <div className="flex items-end gap-3">
+                                                    <h1 className="text-8xl font-black text-white leading-none tracking-tighter">{currentMatch.runs}</h1>
+                                                    <div className="pb-2">
+                                                        <p className="text-4xl font-black text-emerald-500 leading-none mb-1">/ {currentMatch.wickets}</p>
+                                                        <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Wickets</p>
+                                                    </div>
+                                                </div>
+                                                <div className="text-right">
+                                                    <p className="text-4xl font-black text-white tracking-tighter mb-1">{Math.floor(currentMatch.balls / 6)}.{currentMatch.balls % 6}</p>
+                                                    <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Overs ({matchSetup.overs})</p>
+                                                </div>
+                                            </div>
+
+                                            <div className={`absolute inset-0 bg-slate-950/40 rounded-[2.5rem] border border-slate-700/50 p-6 transition-all duration-500 transform ${showScorecardView ? 'translate-y-0 opacity-100 scale-100 shadow-2xl' : 'translate-y-40 opacity-0 scale-90'}`}>
+                                                <div className="grid grid-cols-2 gap-6 h-full">
+                                                    <div className="flex flex-col justify-center">
+                                                        <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">Batter: {currentMatch.batting}</p>
+                                                        <div className="flex gap-6">
+                                                            <div><p className="text-[9px] font-bold text-slate-400 uppercase mb-1">Runs (B)</p><p className="font-black text-white text-2xl leading-none">{currentMatch.runs} ({currentMatch.balls})</p></div>
+                                                            <div><p className="text-[9px] font-bold text-slate-400 uppercase mb-1">SR</p><p className="font-black text-emerald-400 text-2xl leading-none">{currentMatch.balls > 0 ? ((currentMatch.runs/currentMatch.balls)*100).toFixed(1) : "0.0"}</p></div>
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex flex-col justify-center border-l border-slate-700/50 pl-6">
+                                                        <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">Bowler: {currentMatch.bowling}</p>
+                                                        <div className="flex gap-6">
+                                                            <div><p className="text-[9px] font-bold text-slate-400 uppercase mb-1">W-O</p><p className="font-black text-red-500 text-2xl leading-none">{currentMatch.wickets}</p></div>
+                                                            <div><p className="text-[9px] font-bold text-slate-400 uppercase mb-1">Econ</p><p className="font-black text-emerald-400 text-2xl leading-none">{currentMatch.balls > 0 ? (currentMatch.runs/(currentMatch.balls/6)).toFixed(1) : "0.0"}</p></div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {currentMatch.innings === 2 && !showScorecardView && (
+                                            <div className="bg-emerald-500/10 border border-emerald-500/20 p-5 rounded-[2rem] mb-8 flex items-center justify-between animate-in zoom-in-95 shadow-md">
+                                                <div className="flex items-center gap-3 text-emerald-400 font-black text-sm uppercase tracking-tight italic">
+                                                    <CricketIcon name="Target" size={20} strokeWidth={3} /> Need {currentMatch.target - currentMatch.runs} runs
+                                                </div>
+                                                <div className="text-emerald-400/60 text-[10px] font-black uppercase tracking-widest">
+                                                    In { (matchSetup.overs * 6) - currentMatch.balls } balls
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        <div ref={ballLogRef} className="flex gap-3 overflow-x-auto no-scrollbar py-2 scroll-smooth items-center">
+                                            {currentMatch.overLog.map((ball, idx) => {
+                                                const totalLegal = currentMatch.overLog.slice(0, idx + 1).filter(b => typeof b === 'number' || b === 'W').length;
+                                                const overEnd = totalLegal > 0 && totalLegal % 6 === 0 && (typeof ball === 'number' || ball === 'W');
+                                                return (
+                                                    <Fragment key={idx}>
+                                                        <div className={`min-w-[48px] h-12 rounded-2xl flex items-center justify-center font-black text-base border-2 transition-all shadow-sm ${
+                                                            ball === 'W' ? 'bg-red-500 text-white border-red-400 shadow-red-500/20' : 
+                                                            (ball === 4 || ball === 6) ? 'bg-emerald-500 text-slate-950 border-emerald-300 shadow-emerald-500/20 shadow-lg' :
+                                                            'bg-slate-800 text-slate-300 border-slate-700'
+                                                        }`}>
+                                                            {ball}
+                                                        </div>
+                                                        {overEnd && <div className="min-w-[4px] h-8 bg-slate-800 rounded-full mx-2" />}
+                                                    </Fragment>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+
+                                    <div className="p-6 space-y-4 flex-grow flex flex-col justify-end pb-16">
+                                        <div className="grid grid-cols-3 gap-4">
+                                            {[1, 2, 3, 4, 6, 0].map(vVal => (
+                                                <button key={vVal} onClick={() => handleScore(vVal)} className="h-24 bg-slate-900 border border-slate-800/50 rounded-[2.5rem] text-white text-2xl font-black active:bg-emerald-600 active:scale-95 transition-all shadow-xl active:shadow-emerald-500/20 border-b-4 border-slate-800 active:border-emerald-700">
+                                                    {vVal === 0 ? "DOT" : vVal}
+                                                    <span className="block text-[10px] opacity-40 font-black uppercase tracking-tighter mt-1">{vVal === 0 ? 'BALL' : 'RUNS'}</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <button onClick={() => handleScore(0, 'wide')} className="h-18 bg-slate-800/80 border border-slate-700 rounded-[2rem] text-slate-300 text-sm font-black active:bg-slate-700 active:scale-95 transition-all uppercase tracking-widest shadow-lg">Wide (+1)</button>
+                                            <button onClick={() => handleScore(0, 'noball')} className="h-18 bg-slate-800/80 border border-slate-700 rounded-[2rem] text-slate-300 text-sm font-black active:bg-slate-700 active:scale-95 transition-all uppercase tracking-widest shadow-lg">No Ball (+1)</button>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <button onClick={() => handleScore(0, 'wicket')} className="h-24 bg-red-600/10 border-2 border-red-500/30 text-red-500 rounded-[2.5rem] font-black text-xl active:bg-red-600 active:text-white active:scale-95 transition-all uppercase shadow-xl">Out</button>
+                                            <button onClick={undoLastBall} className="h-24 bg-slate-900 border border-slate-800 rounded-[2.5rem] text-slate-500 flex flex-col items-center justify-center active:bg-slate-800 active:scale-95 transition-all shadow-xl">
+                                                <CricketIcon name="RotateCcw" size={24} />
+                                                <span className="text-[10px] font-black mt-2 uppercase tracking-widest">Correction</span>
+                                            </button>
+                                        </div>
+                                        <button 
+                                            onClick={() => setShowScorecardView(!showScorecardView)} 
+                                            className={`w-full h-20 mt-4 rounded-[2.5rem] font-black flex items-center justify-center gap-4 active:scale-95 transition-all uppercase italic tracking-tighter shadow-2xl border-2 ${showScorecardView ? 'bg-white text-slate-900 border-white' : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400'}`}
+                                        >
+                                            <CricketIcon name={showScorecardView ? "RotateCcw" : "ClipboardList"} size={24} />
+                                            <span className="text-lg">{showScorecardView ? "Resume Scoring" : "Match Scorecard"}</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {activeTab === 'stats' && (
+                                <div className="p-6 space-y-8 pb-24 animate-in fade-in">
+                                    <h1 className="text-3xl font-black text-white uppercase italic tracking-tighter mb-2">Hall of Fame</h1>
+                                    
+                                    <div className="flex bg-slate-900 p-2 rounded-[2.5rem] border border-slate-800 relative shadow-inner">
+                                        <div className={`absolute top-2 bottom-2 w-[calc(50%-8px)] bg-emerald-600 rounded-[2rem] transition-all duration-300 shadow-2xl ${statsPlayer === 'Sumit' ? 'translate-x-full left-1.5' : 'left-2'}`} />
+                                        <button onClick={() => setStatsPlayer('Kaushal')} className={`flex-1 py-5 text-sm font-black uppercase tracking-[0.25em] relative z-10 transition-colors duration-300 ${statsPlayer === 'Kaushal' ? 'stats-toggle-active' : 'text-slate-600'}`}>Kaushal</button>
+                                        <button onClick={() => setStatsPlayer('Sumit')} className={`flex-1 py-5 text-sm font-black uppercase tracking-[0.25em] relative z-10 transition-colors duration-300 ${statsPlayer === 'Sumit' ? 'stats-toggle-active' : 'text-slate-600'}`}>Sumit</button>
+                                    </div>
+
+                                    <div key={statsPlayer} className="space-y-6 animate-in slide-in-from-right">
+                                        <div className="bg-slate-900/80 border border-slate-800 rounded-[3.5rem] p-10 flex flex-col items-center shadow-2xl backdrop-blur-sm">
+                                            <PlayerAvatar name={statsPlayer} />
+                                            <h2 className="text-4xl font-black text-white uppercase italic mt-6 tracking-tighter leading-none">{statsPlayer}</h2>
+                                            <div className="mt-8 grid grid-cols-2 gap-4 w-full">
+                                                <div className="bg-slate-950/50 p-6 rounded-[2rem] border border-slate-800/50 text-center backdrop-blur-sm">
+                                                    <p className="text-emerald-500 text-[10px] font-black uppercase tracking-widest mb-2">Trophy Wins</p>
+                                                    <p className="text-5xl font-black text-white tracking-tighter leading-none">{playerStats[statsPlayer].wins}</p>
+                                                </div>
+                                                <div className="bg-slate-950/50 p-6 rounded-[2rem] border border-slate-800/50 text-center backdrop-blur-sm">
+                                                    <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-2">Matches</p>
+                                                    <p className="text-5xl font-black text-white tracking-tighter leading-none">{playerStats[statsPlayer].matches}</p>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <h3 className="text-[11px] font-black text-slate-600 uppercase tracking-[0.4em] px-6 mt-8">Career Performance</h3>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <StatBox iconName="Activity" label="Career Runs" value={playerStats[statsPlayer].runs} colorClass="text-emerald-400" />
+                                            <StatBox iconName="TrendingUp" label="Strike Rate" value={playerStats[statsPlayer].balls > 0 ? ((playerStats[statsPlayer].runs / playerStats[statsPlayer].balls) * 100).toFixed(1) : "0.0"} colorClass="text-indigo-400" />
+                                            <StatBox iconName="Zap" label="Career Sixes" value={playerStats[statsPlayer].sixes} colorClass="text-amber-500" />
+                                            <StatBox iconName="Target" label="Career Fours" value={playerStats[statsPlayer].fours} colorClass="text-amber-400" />
+                                            <StatBox iconName="Hash" label="Wickets" value={playerStats[statsPlayer].wickets} colorClass="text-red-500" />
+                                            <StatBox iconName="Disc" label="Dot Balls" value={playerStats[statsPlayer].dots} colorClass="text-slate-400" />
+                                        </div>
+
+                                        <div className="bg-slate-900/30 p-8 rounded-[3rem] border border-slate-800 text-center shadow-inner">
+                                            <p className="text-slate-600 text-xs font-black uppercase tracking-widest mb-2">Total Singles/Rotation</p>
+                                            <p className="text-3xl font-black text-white italic tracking-tighter">{playerStats[statsPlayer].ones}</p>
+                                        </div>
+                                    </div>
+                                    
+                                    <button onClick={() => { if(confirm("Permanently wipe all hall of fame data?")) { localStorage.clear(); window.location.reload(); } }} className="w-full py-6 text-slate-800 text-[10px] font-black uppercase tracking-[0.3em] opacity-40 hover:opacity-100 transition-opacity">Reset Legend Data</button>
+                                </div>
+                            )}
+                        </div>
+
+                        {activeTab !== 'scoring' && (
+                            <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto bg-slate-900/90 backdrop-blur-3xl border-t border-slate-800/50 px-10 py-6 flex justify-between items-center z-50 rounded-t-[3.5rem] shadow-2xl">
+                                <button onClick={() => setActiveTab('dashboard')} className={`flex flex-col items-center gap-1.5 transition-all ${activeTab === 'dashboard' ? 'text-emerald-400 scale-125' : 'text-slate-600 opacity-60'}`}>
+                                    <CricketIcon name="LayoutDashboard" size={24} className={activeTab === 'dashboard' ? 'fill-emerald-400' : ''} />
+                                    <span className="text-[9px] font-black uppercase tracking-widest">Home</span>
+                                </button>
+                                <button onClick={() => setActiveTab('newMatch')} className="p-5 bg-emerald-500 rounded-[2rem] text-slate-950 -mt-20 shadow-2xl shadow-emerald-500/50 active:scale-90 border-b-6 border-emerald-700 transition-all">
+                                    <CricketIcon name="PlusCircle" size={32} />
+                                </button>
+                                <button onClick={() => setActiveTab('stats')} className={`flex flex-col items-center gap-1.5 transition-all ${activeTab === 'stats' ? 'text-emerald-400 scale-125' : 'text-slate-600 opacity-60'}`}>
+                                    <CricketIcon name="User" size={24} className={activeTab === 'stats' ? 'fill-emerald-400' : ''} />
+                                    <span className="text-[9px] font-black uppercase tracking-widest">Stats</span>
+                                </button>
+                            </div>
+                        )}
+                    </div>
+                );
+            };
+
+            const rootElement = document.getElementById('root');
+            if (rootElement) {
+                const appRoot = ReactDOM.createRoot(rootElement);
+                appRoot.render(<App />);
+            }
+        })(window.React, window.ReactDOM);
+    </script>
+</body>
+</html>
