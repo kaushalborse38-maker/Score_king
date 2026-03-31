@@ -208,7 +208,48 @@
             }
         }
 
-        function finishSequence() { updateCareerStats(); saveToHistory(); }
+        function finishSequence() { 
+            // Record final innings stats
+            recordInningsStats();
+            // Record match match win/loss
+            updateMatchOutcome();
+            saveToHistory(); 
+        }
+
+        // Logic to record stats for both players after an innings
+        function recordInningsStats() {
+            const m = state.match;
+            const batter = state.playerStats[m.battingTeam];
+            const bowler = state.playerStats[m.bowlingTeam];
+
+            // Update Batting Stats
+            batter.runs += m.score;
+            batter.ballsFaced += m.balls;
+            if (m.score > (batter.highestScore || 0)) batter.highestScore = m.score;
+            if (m.score >= 100) batter.hundreds = (batter.hundreds || 0) + 1;
+            else if (m.score >= 50) batter.fifties = (batter.fifties || 0) + 1;
+
+            m.ballLog.forEach(b => {
+                if (b.run === 4 && b.type === 'normal') batter.fours = (batter.fours || 0) + 1;
+                if (b.run === 6 && b.type === 'normal') batter.sixes = (batter.sixes || 0) + 1;
+            });
+
+            // Update Bowling Stats
+            bowler.wickets += m.wickets;
+            
+            saveToLocal();
+        }
+
+        function updateMatchOutcome() {
+            const m = state.match;
+            // Both players played one more match
+            state.playerStats.Kaushal.matches++;
+            state.playerStats.Sumit.matches++;
+            
+            // Increment win for winner
+            if (m.winner) state.playerStats[m.winner].wins++;
+            saveToLocal();
+        }
 
         function saveToHistory() {
             const m = state.match;
@@ -225,35 +266,10 @@
             saveToLocal();
         }
 
-        function updateCareerStats() {
-            const m = state.match;
-            const winner = m.winner;
-            const updatePlayer = (name, isWinner) => {
-                const pStats = state.playerStats[name];
-                pStats.matches = (pStats.matches || 0) + 1;
-                if (isWinner) pStats.wins = (pStats.wins || 0) + 1;
-                
-                if (m.battingTeam === name) {
-                    pStats.runs = (pStats.runs || 0) + m.score;
-                    pStats.ballsFaced = (pStats.ballsFaced || 0) + m.balls;
-                    if (m.score > (pStats.highestScore || 0)) pStats.highestScore = m.score;
-                    if (m.score >= 100) pStats.hundreds = (pStats.hundreds || 0) + 1;
-                    else if (m.score >= 50) pStats.fifties = (pStats.fifties || 0) + 1;
-                    
-                    m.ballLog.forEach(b => {
-                        if (b.run === 4) pStats.fours = (pStats.fours || 0) + 1;
-                        if (b.run === 6) pStats.sixes = (pStats.sixes || 0) + 1;
-                    });
-                } else { 
-                    pStats.wickets = (pStats.wickets || 0) + m.wickets; 
-                }
-            };
-            updatePlayer(m.battingTeam, winner === m.battingTeam);
-            updatePlayer(m.bowlingTeam, winner === m.bowlingTeam);
-            saveToLocal();
-        }
-
         window.startInnings2 = function() {
+            // Save Innings 1 stats before clearing
+            recordInningsStats();
+            
             state.match.target = state.match.score + 1;
             state.match.score = 0;
             state.match.wickets = 0;
@@ -304,9 +320,8 @@
                 bowl = tossChoice === 'Bat' ? 'Kaushal' : 'Sumit';
             }
             
-            const defaultMatch = INITIAL_STATE.match;
             state.match = {
-                ...defaultMatch,
+                ...INITIAL_STATE.match,
                 status: 'live',
                 battingTeam: bat,
                 bowlingTeam: bowl,
@@ -419,7 +434,7 @@
                 ? state.matchHistory.slice(0, 3).map(m => `
                     <div class="bg-[#1e293b]/30 p-4 rounded-[24px] border border-white/5 flex justify-between items-center mb-3">
                         <div class="flex flex-col gap-0.5">
-                            <p class="text-[8px] font-black text-emerald-400 uppercase tracking-widest leading-none italic">${m.winner} WON</p>
+                            <p class="text-[8px] font-black text-emerald-400 uppercase tracking-widest leading-none italic">${m.winner ? m.winner + ' WON' : 'ABANDONED'}</p>
                             <p class="text-xs font-bold text-white tracking-tighter opacity-80 uppercase">${m.battingTeam} v ${m.bowlingTeam}</p>
                         </div>
                         <div class="text-right">
@@ -630,19 +645,57 @@
                              </div>
                              <img src="${PLAYER_PHOTOS[player]}" class="w-14 h-14 rounded-2xl border border-emerald-500/20 object-cover shadow-lg bg-slate-900">
                         </div>
-                        <div class="grid grid-cols-2 gap-4 mb-6">
-                            <div class="bg-white/5 p-5 rounded-[24px] text-center border border-white/5"><p class="text-[8px] text-slate-600 font-black mb-1 italic">Total Runs</p><p class="text-3xl font-black text-white italic leading-none">${stats.runs}</p></div>
-                            <div class="bg-white/5 p-5 rounded-[24px] text-center border border-white/5"><p class="text-[8px] text-slate-600 font-black mb-1 italic">Strike Rate</p><p class="text-3xl font-black text-emerald-400 italic leading-none">${sr}</p></div>
-                        </div>
+                        
+                        <!-- Main Stats Grid -->
                         <div class="grid grid-cols-3 gap-3 mb-6">
-                            <div class="text-center bg-black/20 py-4 rounded-2xl border border-white/5"><p class="text-[7px] text-slate-600 font-black italic uppercase">Highest</p><p class="text-xl font-black text-white italic leading-none mt-1">${stats.highestScore || 0}</p></div>
-                            <div class="text-center bg-black/20 py-4 rounded-2xl border border-white/5"><p class="text-[7px] text-slate-600 font-black italic uppercase">100s</p><p class="text-xl font-black text-amber-500 italic leading-none mt-1">${stats.hundreds || 0}</p></div>
-                            <div class="text-center bg-black/20 py-4 rounded-2xl border border-white/5"><p class="text-[7px] text-slate-600 font-black italic uppercase">50s</p><p class="text-xl font-black text-blue-500 italic leading-none mt-1">${stats.fifties || 0}</p></div>
+                            <div class="bg-white/5 p-4 rounded-[24px] text-center border border-white/5">
+                                <p class="text-[7px] text-slate-600 font-black mb-1 italic uppercase tracking-widest">Runs</p>
+                                <p class="text-2xl font-black text-white italic leading-none">${stats.runs}</p>
+                            </div>
+                            <div class="bg-white/5 p-4 rounded-[24px] text-center border border-white/5">
+                                <p class="text-[7px] text-slate-600 font-black mb-1 italic uppercase tracking-widest">Wickets</p>
+                                <p class="text-2xl font-black text-rose-500 italic leading-none">${stats.wickets || 0}</p>
+                            </div>
+                            <div class="bg-white/5 p-4 rounded-[24px] text-center border border-white/5">
+                                <p class="text-[7px] text-slate-600 font-black mb-1 italic uppercase tracking-widest">Strike Rate</p>
+                                <p class="text-2xl font-black text-emerald-400 italic leading-none">${sr}</p>
+                            </div>
                         </div>
-                        <div class="grid grid-cols-3 gap-3">
-                            <div class="text-center bg-black/20 py-4 rounded-2xl border border-white/5"><p class="text-[7px] text-slate-600 font-black italic">6s</p><p class="text-xl font-black text-amber-400 italic leading-none">${stats.sixes}</p></div>
-                            <div class="text-center bg-black/20 py-4 rounded-2xl border border-white/5"><p class="text-[7px] text-slate-600 font-black italic">4s</p><p class="text-xl font-black text-blue-400 italic leading-none">${stats.fours}</p></div>
-                            <div class="text-center bg-emerald-500/10 py-4 rounded-2xl border border-emerald-500/20"><p class="text-[7px] text-emerald-500 font-black italic uppercase">Wins</p><p class="text-xl font-black text-emerald-400 italic leading-none">${stats.wins}</p></div>
+
+                        <!-- Milestone Grid -->
+                        <div class="grid grid-cols-3 gap-3 mb-6">
+                            <div class="text-center bg-black/20 py-4 rounded-2xl border border-white/5">
+                                <p class="text-[7px] text-slate-600 font-black italic uppercase">Highest</p>
+                                <p class="text-xl font-black text-white italic leading-none mt-1">${stats.highestScore || 0}</p>
+                            </div>
+                            <div class="text-center bg-black/20 py-4 rounded-2xl border border-white/5">
+                                <p class="text-[7px] text-slate-600 font-black italic uppercase">100s</p>
+                                <p class="text-xl font-black text-amber-500 italic leading-none mt-1">${stats.hundreds || 0}</p>
+                            </div>
+                            <div class="text-center bg-black/20 py-4 rounded-2xl border border-white/5">
+                                <p class="text-[7px] text-slate-600 font-black italic uppercase">50s</p>
+                                <p class="text-xl font-black text-blue-500 italic leading-none mt-1">${stats.fifties || 0}</p>
+                            </div>
+                        </div>
+
+                        <!-- Match stats -->
+                        <div class="grid grid-cols-4 gap-3">
+                            <div class="text-center bg-black/20 py-4 rounded-2xl border border-white/5">
+                                <p class="text-[7px] text-slate-600 font-black italic">6s</p>
+                                <p class="text-lg font-black text-amber-400 italic">${stats.sixes}</p>
+                            </div>
+                            <div class="text-center bg-black/20 py-4 rounded-2xl border border-white/5">
+                                <p class="text-[7px] text-slate-600 font-black italic">4s</p>
+                                <p class="text-lg font-black text-blue-400 italic">${stats.fours}</p>
+                            </div>
+                            <div class="text-center bg-black/20 py-4 rounded-2xl border border-white/5">
+                                <p class="text-[7px] text-slate-600 font-black italic uppercase">Matches</p>
+                                <p class="text-lg font-black text-slate-400 italic">${stats.matches}</p>
+                            </div>
+                            <div class="text-center bg-emerald-500/10 py-4 rounded-2xl border border-emerald-500/20">
+                                <p class="text-[7px] text-emerald-500 font-black italic uppercase">Wins</p>
+                                <p class="text-lg font-black text-emerald-400 italic">${stats.wins}</p>
+                            </div>
                         </div>
                     </div>
                 </div>
