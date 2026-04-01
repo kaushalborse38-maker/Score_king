@@ -94,12 +94,30 @@
     <script>
         const apiKey = "";
         
-        // MP3 Audio Assets
+        // MP3 Audio Assets (Random Selection Arrays)
         const SOUNDS = {
-            six: "https://raw.githubusercontent.com/kaushalborse38-maker/Score_king/main/ElevenLabs_2026-04-01T14_09_43_Shaurya%E2%80%93%20Radio%20Sports%20Commentary_pvc_sp114_s69_sb41_se100_b_m2.mp3",
-            four: "https://raw.githubusercontent.com/kaushalborse38-maker/Score_king/main/4.mp3",
-            wicket: "https://raw.githubusercontent.com/kaushalborse38-maker/Score_king/main/out.mp3",
-            single: ""  // Add your Single raw link here
+            six: [
+                "https://raw.githubusercontent.com/kaushalborse38-maker/Score_king/main/ElevenLabs_2026-04-01T14_09_43_Shaurya%E2%80%93%20Radio%20Sports%20Commentary_pvc_sp114_s69_sb41_se100_b_m2.mp3",
+                "https://raw.githubusercontent.com/kaushalborse38-maker/Score_king/main/6-2.mp3",
+                "https://raw.githubusercontent.com/kaushalborse38-maker/Score_king/main/6%203.mp3"
+            ],
+            four: [
+                "https://raw.githubusercontent.com/kaushalborse38-maker/Score_king/main/4%202.mp3",
+                "https://raw.githubusercontent.com/kaushalborse38-maker/Score_king/main/4%203.mp3",
+                "https://raw.githubusercontent.com/kaushalborse38-maker/Score_king/main/4.mp3"
+            ],
+            wicket: [
+                "https://raw.githubusercontent.com/kaushalborse38-maker/Score_king/main/out%20-2.mp3",
+                "https://raw.githubusercontent.com/kaushalborse38-maker/Score_king/main/out.mp3",
+                "https://raw.githubusercontent.com/kaushalborse38-maker/Score_king/main/w%202.mp3",
+                "https://raw.githubusercontent.com/kaushalborse38-maker/Score_king/main/w3.mp3"
+            ],
+            single: [
+                "https://raw.githubusercontent.com/kaushalborse38-maker/Score_king/main/1.ogg"
+            ],
+            dot: [
+                "https://raw.githubusercontent.com/kaushalborse38-maker/Score_king/main/FAHHH%20(Meme%20Sound%20Effect)%20-%20Fun%20Zone%20Guy.mp3"
+            ]
         };
 
         const PLAYER_PHOTOS = {
@@ -158,12 +176,19 @@
             render();
         }
 
-        // Logic for playing specific MP3 sounds
+        // Logic for playing specific MP3 sounds with random selection
         function playAppSound(key, fallbackText) {
             if (!state.voiceEnabled) return;
             
-            if (SOUNDS[key] && SOUNDS[key] !== "") {
-                const audio = new Audio(SOUNDS[key]);
+            let soundList = SOUNDS[key];
+            let soundSrc = "";
+
+            if (Array.isArray(soundList) && soundList.length > 0) {
+                soundSrc = soundList[Math.floor(Math.random() * soundList.length)];
+            }
+
+            if (soundSrc && soundSrc !== "") {
+                const audio = new Audio(soundSrc);
                 audio.play().catch(e => {
                     console.log("Audio play blocked or link broken, using TTS fallback");
                     if (fallbackText) speakFallback(fallbackText);
@@ -253,7 +278,7 @@
                     triggerBoundaryAnimation(6);
                     playAppSound('six', "It is a maximum");
                 } else if (run === 0) {
-                    speakFallback("Dot ball");
+                    playAppSound('dot', "Dot ball");
                 }
             }
 
